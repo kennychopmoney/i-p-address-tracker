@@ -162,7 +162,7 @@
 
     <aside class="privacy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></svg>
-      <span>Lookups are sent to <a href="https://ipwho.is/" target="_blank" rel="noopener noreferrer">ipwho.is</a>, with <a href="https://ipapi.co/" target="_blank" rel="noopener noreferrer">ipapi.co</a> as a backup if the primary service is rate-limited. These services receive the IP address you enter. IP location is approximate and may identify a network or provider rather than a person or exact address. This page does not save a lookup history.</span>
+      <span>Lookups are sent to <a href="https://ipwho.is/" target="_blank" rel="noopener noreferrer">ipwho.is</a>, with <a href="https://ipapi.co/" target="_blank" rel="noopener noreferrer">ipapi.co</a> and <a href="https://www.geojs.io/" target="_blank" rel="noopener noreferrer">GeoJS</a> as backups if a service is rate-limited. These services receive the IP address you enter. IP location is approximate and may identify a network or provider rather than a person or exact address. This page does not save a lookup history.</span>
     </aside>
   </main>
   <footer class="shell">IP Atlas · Public IP geolocation lookup</footer>
@@ -257,10 +257,41 @@
             };
             provider = "ipapi.co";
           } catch (error) {
-            const reason = error instanceof TypeError
-              ? "the backup service could not be reached"
+            const backupError = error instanceof TypeError
+              ? "the service could not be reached"
               : error.message;
-            throw new Error(`ipwho.is is rate-limited (429), and the backup lookup failed: ${reason}`);
+            setMessage("The first two services are unavailable. Trying the final backup…");
+            try {
+              const geoJsResponse = await fetch(`https://get.geojs.io/v1/ip/geo/${encodeURIComponent(ip)}.json`);
+              if (!geoJsResponse.ok) {
+                throw new Error(`GeoJS returned an error (${geoJsResponse.status}).`);
+              }
+              const geoJsData = await geoJsResponse.json();
+              if (!geoJsData.ip || geoJsData.error) {
+                throw new Error(geoJsData.error || "GeoJS could not locate this IP address.");
+              }
+              data = {
+                ip: geoJsData.ip,
+                city: geoJsData.city,
+                region: geoJsData.region,
+                country: geoJsData.country,
+                country_code: geoJsData.country_code,
+                latitude: Number(geoJsData.latitude),
+                longitude: Number(geoJsData.longitude),
+                connection: {
+                  isp: geoJsData.organization_name || geoJsData.organization,
+                  org: geoJsData.organization_name || geoJsData.organization,
+                  asn: String(geoJsData.asn || "").replace(/^AS/i, "")
+                },
+                timezone: { id: geoJsData.timezone }
+              };
+              provider = "GeoJS";
+            } catch (geoJsError) {
+              const finalError = geoJsError instanceof TypeError
+                ? "the service could not be reached"
+                : geoJsError.message;
+              throw new Error(`ipwho.is is rate-limited (429); ipapi.co failed (${backupError}); GeoJS failed (${finalError}).`);
+            }
           }
         } else {
           if (!response.ok) throw new Error(`The lookup service returned an error (${response.status}).`);
@@ -289,7 +320,7 @@
         }
 
         results.hidden = false;
-        setMessage(provider === "ipapi.co" ? "Primary service rate-limited; results provided by backup service ipapi.co." : "");
+        setMessage(provider === "ipwho.is" ? "" : `Primary service rate-limited; results provided by ${provider}.`);
       } catch (error) {
         setMessage(error instanceof TypeError
           ? "Could not reach the lookup service. Check your connection and try again."
