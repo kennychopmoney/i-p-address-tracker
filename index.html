@@ -162,7 +162,7 @@
 
     <aside class="privacy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></svg>
-      <span>Lookups are sent to <a href="https://ipwho.is/" target="_blank" rel="noopener noreferrer">ipwho.is</a> to retrieve public IP geolocation data. IP location is approximate and may identify a network or provider rather than a person or exact address. This page does not save a lookup history.</span>
+      <span>Lookups are sent to <a href="https://ipwho.is/" target="_blank" rel="noopener noreferrer">ipwho.is</a>, with <a href="https://ipapi.co/" target="_blank" rel="noopener noreferrer">ipapi.co</a> as a backup if the primary service is rate-limited. These services receive the IP address you enter. IP location is approximate and may identify a network or provider rather than a person or exact address. This page does not save a lookup history.</span>
     </aside>
   </main>
   <footer class="shell">IP Atlas · Public IP geolocation lookup</footer>
@@ -227,9 +227,46 @@
 
       try {
         const response = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`);
-        if (!response.ok) throw new Error(`The lookup service returned an error (${response.status}).`);
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || "The lookup service could not locate this IP address.");
+        let data;
+        let provider = "ipwho.is";
+        if (response.status === 429) {
+          setMessage("The primary service is rate-limited. Trying the backup service…");
+          try {
+            const backupResponse = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
+            if (!backupResponse.ok) {
+              throw new Error(`The backup service returned an error (${backupResponse.status}).`);
+            }
+            const backupData = await backupResponse.json();
+            if (backupData.error) {
+              throw new Error(backupData.reason || backupData.message || "The backup service could not locate this IP address.");
+            }
+            data = {
+              ip: backupData.ip,
+              city: backupData.city,
+              region: backupData.region,
+              country: backupData.country_name || backupData.country,
+              country_code: backupData.country_code,
+              latitude: backupData.latitude,
+              longitude: backupData.longitude,
+              connection: {
+                isp: backupData.org,
+                org: backupData.org,
+                asn: String(backupData.asn || "").replace(/^AS/i, "")
+              },
+              timezone: { id: backupData.timezone }
+            };
+            provider = "ipapi.co";
+          } catch (error) {
+            const reason = error instanceof TypeError
+              ? "the backup service could not be reached"
+              : error.message;
+            throw new Error(`ipwho.is is rate-limited (429), and the backup lookup failed: ${reason}`);
+          }
+        } else {
+          if (!response.ok) throw new Error(`The lookup service returned an error (${response.status}).`);
+          data = await response.json();
+          if (!data.success) throw new Error(data.message || "The lookup service could not locate this IP address.");
+        }
 
         resultGrid.replaceChildren();
         resultIp.textContent = data.ip || ip;
@@ -252,7 +289,7 @@
         }
 
         results.hidden = false;
-        setMessage("");
+        setMessage(provider === "ipapi.co" ? "Primary service rate-limited; results provided by backup service ipapi.co." : "");
       } catch (error) {
         setMessage(error instanceof TypeError
           ? "Could not reach the lookup service. Check your connection and try again."

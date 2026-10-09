@@ -7,7 +7,7 @@ A lightweight static web app for looking up public IP geolocation details.
 - Enter any IPv4 or IPv6 address
 - View approximate location, country code, ISP, ASN, timezone, and coordinates
 - Open the result on OpenStreetMap
-- Uses the public ipwho.is API for geolocation data
+- Uses the public ipwho.is API, with ipapi.co as a fallback when the primary service is rate-limited
 
 ## Run locally
 
@@ -27,3 +27,5 @@ This project is configured for GitHub Pages via a GitHub Actions workflow.
 ## Note
 
 IP geolocation can only provide approximate network-level information and is not always exact to a physical address.
+
+Lookups send the IP address entered to the selected geolocation provider. Both providers apply their own usage limits, so lookups may still be unavailable if the backup provider is also rate-limited.
